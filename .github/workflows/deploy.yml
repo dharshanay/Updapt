@@ -9,17 +9,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to VM
-        uses: appleboy/ssh-action@v1.0.0
+      - name: Deploy to Windows VM via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          password: ${{ secrets.PASSWORD }}
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
+          command_timeout: 10m
+          script_stop: true
           script: |
-            cd Updapt
-            docker-compose pull
-            docker-compose up -d
+            powershell -Command "
+              cd C:\Users\azureuser\Updapt
+              git pull
+              docker compose pull
+              docker compose up -d
+              Start-Sleep -Seconds 15
+              $code = curl.exe -s -o $null -w '%{http_code}' http://localhost/health
+              if ($code -ne '200') { throw 'Health check failed: ' + $code }
+              Write-Host 'Deploy success: /health returned 200'
+            "
 
-      - name: Verify deployment
+      - name: Verify deployment from runner
         run: |
-          curl -f http://135.13.9.205/api/health
+          sleep 5
+          curl -f http://135.13.9.205/health
