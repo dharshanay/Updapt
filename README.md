@@ -2,7 +2,7 @@
 
 **Architecture**: GitHub Actions builds Docker images → pushes to Docker Hub → SSH deploys to Azure Windows VM with health check + auto-rollback.
 
-**Live**: `http://<YOUR_VM_PUBLIC_IP>/health` 
+**Live**: `http://135.13.9.205/health` 
 
 **Tech**: React + Node.js + Nginx + Docker Compose + GitHub Actions
 
