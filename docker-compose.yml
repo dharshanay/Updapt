@@ -1,62 +1,56 @@
-trigger:
-- main
+name: Deploy to Azure Windows VM
 
-variables:
-  dockerRegistryServiceConnection: 'dockerhub-sc' # create this in Project Settings
-  imageRepository: 'dharshanay/updapt'
-  dockerfilePath: '$(Build.SourcesDirectory)/backend/Dockerfile'
-  tag: '$(Build.BuildId)'
-  vmIp: '<YOUR_AZURE_VM_PUBLIC_IP>'
+on:
+  push:
+    branches: [ main ]
 
-stages:
-- stage: Build
-  displayName: Build and push images
-  jobs:
-    - job: Build
-    pool:
-      vmImage: 'ubuntu-latest'
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
     steps:
-        - task: Docker@2
-      displayName: Build backend
-      inputs:
-        command: buildAndPush
-        repository: $(imageRepository)-backend
-        dockerfile: $(dockerfilePath)
-        buildContext: $(Build.SourcesDirectory)/backend
-        tags: $(tag)
-    
-        - task: Docker@2
-      displayName: Build frontend
-      inputs:
-        command: buildAndPush
-        repository: $(imageRepository)-frontend
-        dockerfile: $(Build.SourcesDirectory)/frontend/Dockerfile
-        buildContext: $(Build.SourcesDirectory)/frontend
-        tags: $(tag)
+      - uses: actions/checkout@v4
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: dharshanay/updapt-backend:latest
+          
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: dharshanay/updapt-frontend:latest
 
-- stage: Deploy
-  displayName: Deploy to Azure VM
-  dependsOn: Build
-  jobs:
-    - deployment: Deploy
-    environment: 'production'
-    pool:
-      vmImage: 'ubuntu-latest'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-                    - task: SSH@0
-            inputs:
-              sshEndpoint: 'azure-vm-ssh' # create SSH service connection
-              runOptions: 'inline'
-              inline: |
-                cd /home/azureuser/Updapt
-                echo "TAG=$(tag)" > .env
-                git pull
-                docker login -u $(DOCKER_USER) -p $(DOCKER_PASS)
-                docker compose pull
-                docker compose up -d
-                sleep 10
-                curl -f http://localhost/health || exit 1
-            displayName: 'SSH deploy + health check'
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Windows VM via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            powershell -Command "
+              cd C:\Users\azureuser\Updapt
+              git pull
+              docker compose pull
+              docker compose up -d
+              Start-Sleep -Seconds 15
+              $response = curl.exe -s -o $null -w '%{http_code}' http://localhost/health
+              if ($response -ne '200') { throw 'Health check failed' }
+              Write-Host 'Deploy success: /health returned 200'
+            "
