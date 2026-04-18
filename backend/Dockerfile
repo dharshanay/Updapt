@@ -1,5 +1,6 @@
-FROM node:18
+FROM python:3.11-alpine
 WORKDIR /app
-COPY . .
-RUN npm install express
-CMD ["node", "app.js"]
+COPY app.py.
+RUN pip install flask
+EXPOSE 5000
+CMD ["python", "app.py"]
