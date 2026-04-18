@@ -1,61 +1,37 @@
-name: Deploy to Prod
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [ "main" ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Deploy to VM
+      - name: Deploy to Windows VM via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
+          debug: true          # <-- add this line here
+          command_timeout: 10m
           script_stop: true
           script: |
             powershell -Command "
-              $ErrorActionPreference = 'Stop'
               cd C:\Users\azureuser\Updapt
-              $oldCommit = git rev-parse HEAD
-              try {
-                git pull origin main
-                docker compose pull
-                docker compose up -d --remove-orphans
-                
-                $healthy = $false
-                for ($i = 1; $i -le 12; $i++) {
-                  $code = curl.exe -s -o $null -w '%{http_code}' --max-time 5 http://localhost/health
-                  if ($code -eq '200') { $healthy = $true; break }
-                  Start-Sleep -Seconds 5
-                }
-                if (-not $healthy) { throw 'Health check failed' }
-                Write-Host 'Deploy success'
-              } catch {
-                Write-Host \"DEPLOY FAILED: $_\"
-                git reset --hard $oldCommit
-                docker compose up -d --remove-orphans
-                docker compose logs --tail=50
-                throw
-              }
+              git pull
+              docker compose pull
+              docker compose up -d
+              Start-Sleep -Seconds 15
+              $code = curl.exe -s -o $null -w '%{http_code}' http://localhost/health
+              if ($code -ne '200') { throw 'Health check failed: ' + $code }
+              Write-Host 'Deploy success: /health returned 200'
             "
-      
-      - name: Notify success
-        if: success() && env.SLACK_WEBHOOK!= ''
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-        run: |
-          curl -X POST "$SLACK_WEBHOOK" \
-          -H 'Content-Type: application/json' \
-          -d '{"text":"✅ Deploy succeeded: ${{ github.sha }}"}'
 
-      - name: Notify failure
-        if: failure() && env.SLACK_WEBHOOK!= ''
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+      - name: Verify deployment from runner
         run: |
-          curl -X POST "$SLACK_WEBHOOK" \
-          -H 'Content-Type: application/json' \
-          -d '{"text":"❌ Deploy FAILED: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}'
+          sleep 5
+          curl -f http://135.13.9.205/health
