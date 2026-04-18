@@ -1,21 +1,62 @@
-services:
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - frontend
-      - backend
-    restart: unless-stopped
+trigger:
+- main
 
-  frontend:
-    build: ./frontend
-    image: updapt-frontend:latest
-    restart: unless-stopped
+variables:
+  dockerRegistryServiceConnection: 'dockerhub-sc' # create this in Project Settings
+  imageRepository: 'dharshanay/updapt'
+  dockerfilePath: '$(Build.SourcesDirectory)/backend/Dockerfile'
+  tag: '$(Build.BuildId)'
+  vmIp: '<YOUR_AZURE_VM_PUBLIC_IP>'
 
-  backend:
-    build: ./backend
-    image: updapt-backend:latest
-    restart: unless-stopped
+stages:
+- stage: Build
+  displayName: Build and push images
+  jobs:
+    - job: Build
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+        - task: Docker@2
+      displayName: Build backend
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)-backend
+        dockerfile: $(dockerfilePath)
+        buildContext: $(Build.SourcesDirectory)/backend
+        tags: $(tag)
+    
+        - task: Docker@2
+      displayName: Build frontend
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)-frontend
+        dockerfile: $(Build.SourcesDirectory)/frontend/Dockerfile
+        buildContext: $(Build.SourcesDirectory)/frontend
+        tags: $(tag)
+
+- stage: Deploy
+  displayName: Deploy to Azure VM
+  dependsOn: Build
+  jobs:
+    - deployment: Deploy
+    environment: 'production'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+                    - task: SSH@0
+            inputs:
+              sshEndpoint: 'azure-vm-ssh' # create SSH service connection
+              runOptions: 'inline'
+              inline: |
+                cd /home/azureuser/Updapt
+                echo "TAG=$(tag)" > .env
+                git pull
+                docker login -u $(DOCKER_USER) -p $(DOCKER_PASS)
+                docker compose pull
+                docker compose up -d
+                sleep 10
+                curl -f http://localhost/health || exit 1
+            displayName: 'SSH deploy + health check'
