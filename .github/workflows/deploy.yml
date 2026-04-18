@@ -43,15 +43,19 @@ jobs:
             "
       
       - name: Notify success
-        if: success()
+        if: success() && env.SLACK_WEBHOOK!= ''
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
         run: |
-          curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+          curl -X POST "$SLACK_WEBHOOK" \
           -H 'Content-Type: application/json' \
           -d '{"text":"✅ Deploy succeeded: ${{ github.sha }}"}'
-      
+
       - name: Notify failure
-        if: failure()
+        if: failure() && env.SLACK_WEBHOOK!= ''
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
         run: |
-          curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+          curl -X POST "$SLACK_WEBHOOK" \
           -H 'Content-Type: application/json' \
           -d '{"text":"❌ Deploy FAILED: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}'
